@@ -45,31 +45,53 @@ app.get("/config", (req, res) => {
   });
 });
 
-/* ================= CHANNEL REPLY HANDLER ================= 
-   When admin replies to a message in channel, it forwards to user's DM
-*/
+/* ================= FIXED CHANNEL REPLY HANDLER ================= */
 
+// Listen for all messages to catch channel replies
 bot.on("message", async (msg) => {
   // Check if this is a reply in the channel
-  if (msg.chat.id.toString() === CHANNEL_ID.toString() && msg.reply_to_message) {
+  if (msg.chat && msg.chat.id && msg.chat.id.toString() === CHANNEL_ID.toString() && msg.reply_to_message) {
+    
+    console.log("📨 Channel reply detected:", msg.text);
     
     // Get the original message that was replied to
     const originalMsg = msg.reply_to_message;
     const originalText = originalMsg.text || originalMsg.caption || "";
     
-    // Extract user ID from the original message
-    // Format: "🆔 User ID: 123456789" or similar
-    const userIdMatch = originalText.match(/🆔.*?(\d+)/) || originalText.match(/ID:?\s*(\d+)/i);
+    console.log("Original message text:", originalText);
+    
+    // Extract user ID from the original message - multiple patterns
+    let userIdMatch = null;
+    
+    // Pattern 1: 🆔 **User ID:** 123456789
+    if (originalText.includes("🆔 **User ID:**")) {
+      const match = originalText.match(/🆔 \*\*User ID:\*\* (\d+)/);
+      if (match) userIdMatch = match;
+    }
+    
+    // Pattern 2: 🆔 User ID: 123456789
+    if (!userIdMatch) {
+      const match = originalText.match(/🆔.*?(\d+)/);
+      if (match) userIdMatch = match;
+    }
+    
+    // Pattern 3: ID: 123456789
+    if (!userIdMatch) {
+      const match = originalText.match(/ID:?\s*(\d+)/i);
+      if (match) userIdMatch = match;
+    }
     
     if (userIdMatch) {
       const targetUserId = userIdMatch[1];
+      console.log("🎯 Target User ID:", targetUserId);
       
       // Check if user exists in our database
       if (users[targetUserId]) {
         const user = users[targetUserId];
         
-        // Forward admin's reply to the user
-        const replyText = `📨 **Message from Admin:**\n\n${msg.text || msg.caption || ""}`;
+        // Forward admin's reply to the user with professional formatting
+        const adminName = msg.from.first_name || "Admin";
+        const replyText = `✉️ **Message from Administration**\n\n━━━━━━━━━━━━━━━━━━━\n\n${msg.text || msg.caption || ""}\n\n━━━━━━━━━━━━━━━━━━━\n\n_This is an official message from our support team._`;
         
         try {
           await bot.sendMessage(targetUserId, replyText, { parse_mode: "Markdown" });
@@ -77,7 +99,7 @@ bot.on("message", async (msg) => {
           // Confirm to admin that message was sent
           await bot.sendMessage(
             CHANNEL_ID,
-            `✅ Reply sent to [${user.fullName}](tg://user?id=${targetUserId})`,
+            `✅ **Reply Sent Successfully**\n\n━━━━━━━━━━━━━━━━━━━\n\n👤 **To:** ${user.fullName}\n🆔 **User ID:** \`${targetUserId}\`\n📱 **Username:** ${user.username || 'Not provided'}\n\n━━━━━━━━━━━━━━━━━━━\n\n_Your message has been delivered to the user._`,
             { parse_mode: "Markdown", reply_to_message_id: msg.message_id }
           );
           
@@ -86,45 +108,61 @@ bot.on("message", async (msg) => {
           console.error("Failed to send reply to user:", error);
           await bot.sendMessage(
             CHANNEL_ID,
-            `❌ Failed to send reply. User may have blocked the bot.`,
-            { reply_to_message_id: msg.message_id }
+            `❌ **Delivery Failed**\n\n━━━━━━━━━━━━━━━━━━━\n\nUnable to send message to user. They may have blocked the bot or stopped the chat.\n\n🆔 **User ID:** \`${targetUserId}\`\n\n━━━━━━━━━━━━━━━━━━━`,
+            { parse_mode: "Markdown", reply_to_message_id: msg.message_id }
           );
         }
       } else {
         // User not found in database
+        console.log("User not found in database:", targetUserId);
         await bot.sendMessage(
           CHANNEL_ID,
-          `❌ User ID ${targetUserId} not found in registration database.`,
-          { reply_to_message_id: msg.message_id }
+          `❌ **User Not Found**\n\n━━━━━━━━━━━━━━━━━━━\n\nUser ID \`${targetUserId}\` was not found in the registration database.\n\nPossible reasons:\n• User hasn't completed registration\n• User ID is incorrect\n• Database entry was cleared\n\n━━━━━━━━━━━━━━━━━━━`,
+          { parse_mode: "Markdown", reply_to_message_id: msg.message_id }
         );
       }
     } else {
       // Couldn't find user ID in the message
+      console.log("Could not extract User ID from message");
       await bot.sendMessage(
         CHANNEL_ID,
-        `❌ Could not find User ID in the original message. Make sure the message contains the user ID.`,
-        { reply_to_message_id: msg.message_id }
+        `❌ **Cannot Process Reply**\n\n━━━━━━━━━━━━━━━━━━━\n\nUnable to find User ID in the original message.\n\nPlease make sure you're replying to a registration message that contains the user's ID.\n\n━━━━━━━━━━━━━━━━━━━`,
+        { parse_mode: "Markdown", reply_to_message_id: msg.message_id }
       );
     }
   }
 });
 
-/* ================= START ================= */
+/* ================= PROFESSIONAL WELCOME ================= */
 
 bot.onText(/\/start/, (msg) => {
+  const welcomeMessage = `🌟 **Welcome to Enterprise Platform!** 🌟
+
+━━━━━━━━━━━━━━━━━━━
+
+✅ **Secure Registration**
+✅ **Fast Approval Process**
+✅ **24/7 Support**
+✅ **Instant Access**
+
+━━━━━━━━━━━━━━━━━━━
+
+Click the button below to begin your registration and join our growing community of content creators!`;
+
   bot.sendMessage(
     msg.chat.id,
-    "Welcome 🚀 Click Register to join our platform",
+    welcomeMessage,
     {
+      parse_mode: "Markdown",
       reply_markup: {
-        keyboard: [["Register"]],
+        keyboard: [["📝 Start Registration"]],
         resize_keyboard: true
       }
     }
   );
 });
 
-/* ================= USER REGISTRATION FLOW ================= */
+/* ================= ENHANCED REGISTRATION FLOW ================= */
 
 bot.on("message", async (msg) => {
   if (msg.chat.type !== "private") return;
@@ -136,96 +174,270 @@ bot.on("message", async (msg) => {
 
   const user = users[chatId];
 
-  if (text === "Register") {
+  // Start Registration
+  if (text === "📝 Start Registration") {
     user.step = 1;
-    return bot.sendMessage(chatId, "📝 Please enter your Full Name:");
+    const nameMessage = `📋 **Registration Step 1/6**
+
+━━━━━━━━━━━━━━━━━━━
+
+Please enter your **Full Name** as it appears on your official documents.
+
+Example: *John Smith*
+
+━━━━━━━━━━━━━━━━━━━
+
+_This information is kept confidential and secure._`;
+
+    return bot.sendMessage(chatId, nameMessage, { parse_mode: "Markdown" });
   }
 
+  // Step 1: Full Name
   if (user.step === 1) {
     user.fullName = text;
     user.step = 2;
-    return bot.sendMessage(chatId, "📧 Please enter your Business Email:");
+    
+    const emailMessage = `📧 **Registration Step 2/6**
+
+━━━━━━━━━━━━━━━━━━━
+
+Please enter your **Business Email Address**
+
+Example: *contact@yourbusiness.com*
+
+━━━━━━━━━━━━━━━━━━━
+
+🔒 We'll never share your email with third parties.`;
+
+    return bot.sendMessage(chatId, emailMessage, { parse_mode: "Markdown" });
   }
 
+  // Step 2: Email
   if (user.step === 2) {
+    // Simple email validation
+    if (!text.includes('@') || !text.includes('.')) {
+      return bot.sendMessage(chatId, "❌ Please enter a valid email address (e.g., name@domain.com)");
+    }
+    
     user.email = text;
     user.step = 3;
-    return bot.sendMessage(chatId, "👥 How many subscribers do you have?");
+    
+    const phoneMessage = `📱 **Registration Step 3/6**
+
+━━━━━━━━━━━━━━━━━━━
+
+Please enter your **Phone Number** with country code
+
+Example: *+251912345678*
+
+━━━━━━━━━━━━━━━━━━━
+
+📞 For account verification and important updates.`;
+
+    return bot.sendMessage(chatId, phoneMessage, { parse_mode: "Markdown" });
   }
 
+  // Step 3: Phone Number
   if (user.step === 3) {
-    user.subscribers = text;
+    user.phone = text;
     user.step = 4;
-    return bot.sendMessage(chatId, "🔗 Please enter your Channel Link (e.g., https://t.me/yourchannel):");
+    
+    const usernameMessage = `🐦 **Registration Step 4/6**
+
+━━━━━━━━━━━━━━━━━━━
+
+Please enter your **Telegram Username** (without @)
+
+Example: *john_doe*
+
+━━━━━━━━━━━━━━━━━━━
+
+💬 So our team can easily identify and contact you.`;
+
+    return bot.sendMessage(chatId, usernameMessage, { parse_mode: "Markdown" });
   }
 
+  // Step 4: Telegram Username
   if (user.step === 4) {
-    user.channelLink = text;
+    // Remove @ if they included it
+    user.username = text.replace('@', '');
     user.step = 5;
-    user.status = "pending";
+    
+    const subscribersMessage = `👥 **Registration Step 5/6**
 
-    // Send registration to channel with inline buttons
+━━━━━━━━━━━━━━━━━━━
+
+How many **subscribers/followers** do you currently have?
+
+Example: *15000*
+
+━━━━━━━━━━━━━━━━━━━
+
+📊 This helps us understand your audience size.`;
+
+    return bot.sendMessage(chatId, subscribersMessage, { parse_mode: "Markdown" });
+  }
+
+  // Step 5: Subscribers Count
+  if (user.step === 5) {
+    user.subscribers = text;
+    user.step = 6;
+    
+    const channelMessage = `🔗 **Registration Step 6/6**
+
+━━━━━━━━━━━━━━━━━━━
+
+Please enter your **Channel/Page Link**
+
+Example: *https://t.me/yourchannel*
+
+━━━━━━━━━━━━━━━━━━━
+
+🌐 So we can review your content and verify your presence.`;
+
+    return bot.sendMessage(chatId, channelMessage, { parse_mode: "Markdown" });
+  }
+
+  // Step 6: Channel Link
+  if (user.step === 6) {
+    user.channelLink = text;
+    user.step = 7;
+    user.status = "pending";
+    user.registrationDate = new Date().toISOString();
+    
+    // Store Telegram info automatically
+    user.telegramId = chatId;
+    user.telegramFirstName = msg.from.first_name || "";
+    user.telegramLastName = msg.from.last_name || "";
+
+    // Send confirmation to user
+    const confirmationMessage = `✅ **Registration Submitted Successfully!**
+
+━━━━━━━━━━━━━━━━━━━
+
+📋 **Your Information:**
+👤 Name: ${user.fullName}
+📧 Email: ${user.email}
+📱 Phone: ${user.phone}
+🐦 Username: @${user.username}
+👥 Subscribers: ${user.subscribers}
+🔗 Channel: ${user.channelLink}
+
+━━━━━━━━━━━━━━━━━━━
+
+⏳ Your application is now pending review by our admin team.
+
+📌 **What happens next:**
+1. Admin will review your application (usually within 24h)
+2. You'll receive an approval notification
+3. Complete your payment to activate access
+4. Start using all platform features!
+
+━━━━━━━━━━━━━━━━━━━
+
+_Thank you for choosing our platform!_ 🌟`;
+
+    await bot.sendMessage(chatId, confirmationMessage, { parse_mode: "Markdown" });
+
+    // Professional registration notification to channel
+    const channelMessage = `📥 **NEW REGISTRATION REQUEST** 📥
+
+━━━━━━━━━━━━━━━━━━━
+
+👤 **Personal Information:**
+├ Name: ${user.fullName}
+├ Email: ${user.email}
+├ Phone: ${user.phone}
+└ Username: @${user.username}
+
+📊 **Channel Details:**
+├ Subscribers: ${user.subscribers}
+└ Link: ${user.channelLink}
+
+🆔 **System Info:**
+├ User ID: \`${chatId}\`
+├ Telegram: ${user.telegramFirstName} ${user.telegramLastName}
+└ Registered: ${new Date().toLocaleString()}
+
+━━━━━━━━━━━━━━━━━━━
+⏳ Status: PENDING APPROVAL
+━━━━━━━━━━━━━━━━━━━
+
+💡 *Reply to this message to contact the user directly*`,
+      { parse_mode: "Markdown" };
+
+    // Send to channel with approve/reject buttons
     const messageOptions = {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: "✅ Approve", callback_data: `approve_${chatId}` },
-            { text: "❌ Reject", callback_data: `reject_${chatId}` }
+            { text: "✅ APPROVE", callback_data: `approve_${chatId}` },
+            { text: "❌ REJECT", callback_data: `reject_${chatId}` }
           ]
         ]
       }
     };
 
-    await bot.sendMessage(
-      CHANNEL_ID,
-      `📥 **New Registration Request**
-
-👤 **Name:** ${user.fullName}
-📧 **Email:** ${user.email}
-👥 **Subscribers:** ${user.subscribers}
-🔗 **Channel:** ${user.channelLink}
-🆔 **User ID:** ${chatId}
-⏰ **Time:** ${new Date().toLocaleString()}
-
-Status: ⏳ Pending Approval
-
----
-💡 *Reply to this message to contact the user directly*`,
-      { parse_mode: "Markdown", ...messageOptions }
-    );
+    // Store the message ID for future reference
+    const sentMessage = await bot.sendMessage(CHANNEL_ID, channelMessage, { 
+      parse_mode: "Markdown", 
+      ...messageOptions 
+    });
+    
+    user.channelMessageId = sentMessage.message_id;
 
     return bot.sendMessage(
       chatId,
-      "✅ Your registration has been submitted for approval. You'll receive a notification once reviewed.\n\n📝 **Note:** Admins may contact you via DM by replying to your registration message in the channel.",
+      "📊 Use the button below to check your application status:",
       {
         reply_markup: {
-          keyboard: [["Check Status"]],
+          keyboard: [["📊 Check Status"]],
           resize_keyboard: true
         }
       }
     );
   }
 
-  if (text === "Check Status") {
+  // Check Status
+  if (text === "📊 Check Status") {
     const status = user.status || "pending";
-    let statusMsg = "📊 **Your Registration Status**\n\n";
+    let statusEmoji = "⏳";
+    let statusText = "Pending Review";
     
-    if (status === "pending") {
-      statusMsg += "⏳ Your application is pending admin approval.";
-    } else if (status === "approved") {
-      statusMsg += "✅ Your application has been approved! Click 'Proceed to Payment' to continue.";
+    if (status === "approved") {
+      statusEmoji = "✅";
+      statusText = "APPROVED";
     } else if (status === "rejected") {
-      statusMsg += "❌ Your application has been rejected. Please contact support for more information.";
+      statusEmoji = "❌";
+      statusText = "REJECTED";
     }
+    
+    let statusMsg = `📊 **Application Status** 📊
 
-    // Add channel link if available
-    if (user.channelLink) {
-      statusMsg += `\n\n🔗 Your Channel: ${user.channelLink}`;
+━━━━━━━━━━━━━━━━━━━
+
+${statusEmoji} **Status:** ${statusText}
+
+👤 **Name:** ${user.fullName}
+📧 **Email:** ${user.email}
+📱 **Phone:** ${user.phone}
+🐦 **Username:** @${user.username}
+👥 **Subscribers:** ${user.subscribers}
+🔗 **Channel:** ${user.channelLink}
+
+━━━━━━━━━━━━━━━━━━━`;
+
+    if (status === "pending") {
+      statusMsg += `\n\n⏳ Your application is in queue for review.\nWe'll notify you once admin makes a decision.`;
+    } else if (status === "approved") {
+      statusMsg += `\n\n✅ **Congratulations!** Your application is approved.\nClick the button below to proceed with payment.`;
+    } else if (status === "rejected") {
+      statusMsg += `\n\n❌ Unfortunately, your application was not approved at this time.\nPlease contact support for more information.`;
     }
 
     const keyboard = status === "approved" 
-      ? { keyboard: [["Proceed to Payment"]], resize_keyboard: true }
-      : { keyboard: [["Register"]], resize_keyboard: true };
+      ? { keyboard: [["💰 Proceed to Payment"], ["📊 Check Status"]], resize_keyboard: true }
+      : { keyboard: [["📝 Start Registration"], ["📊 Check Status"]], resize_keyboard: true };
 
     return bot.sendMessage(chatId, statusMsg, { 
       parse_mode: "Markdown",
@@ -241,6 +453,7 @@ bot.on("callback_query", async (callbackQuery) => {
   const message = callbackQuery.message;
   const data = callbackQuery.data;
   const adminId = callbackQuery.from.id;
+  const adminName = callbackQuery.from.first_name || "Admin";
 
   const [action, userId] = data.split("_");
 
@@ -249,62 +462,113 @@ bot.on("callback_query", async (callbackQuery) => {
       users[userId].status = action === "approve" ? "approved" : "rejected";
       users[userId].adminActionBy = adminId;
       users[userId].adminActionAt = Date.now();
+      users[userId].adminName = adminName;
     }
 
     const newStatus = action === "approve" ? "✅ APPROVED" : "❌ REJECTED";
-    const newText = message.text.replace(/Status:.*/g, `Status: ${newStatus} by [Admin](tg://user?id=${adminId})`);
+    const currentText = message.text;
     
-    await bot.editMessageText(newText, {
+    // Update the channel message with new status
+    const updatedText = currentText.replace(/Status:.*$/m, `Status: ${newStatus} by ${adminName}`);
+    
+    await bot.editMessageText(updatedText, {
       chat_id: message.chat.id,
       message_id: message.message_id,
       parse_mode: "Markdown",
-      reply_markup: { inline_keyboard: [] }
+      reply_markup: { inline_keyboard: [] } // Remove buttons
     });
 
+    // Notify user
     if (action === "approve") {
       users[userId].approvalTime = Date.now();
       
+      const approvalMessage = `✅ **APPLICATION APPROVED!** ✅
+
+━━━━━━━━━━━━━━━━━━━
+
+Dear ${users[userId].fullName},
+
+We're pleased to inform you that your registration has been **APPROVED**!
+
+📋 **Your Information:**
+👤 Name: ${users[userId].fullName}
+📧 Email: ${users[userId].email}
+🔗 Channel: ${users[userId].channelLink}
+
+━━━━━━━━━━━━━━━━━━━
+
+💰 **Payment Instructions:**
+• Standard fee: **100 ETB** (within 24 hours)
+• Late fee: **150 ETB** (after 24 hours)
+
+Click the button below to complete your payment and activate your account.
+
+━━━━━━━━━━━━━━━━━━━
+_We're excited to have you onboard!_ 🌟`;
+
       await bot.sendMessage(
         userId,
-        `✅ **Congratulations! Your registration has been APPROVED!**
-
-You now have 24 hours to complete your payment.
-- Standard fee: 100 ETB (within 24h)
-- Late fee: 150 ETB (after 24h)
-
-🔗 Your Channel: ${users[userId].channelLink}
-
-Click the button below to proceed with payment.`,
+        approvalMessage,
         {
           parse_mode: "Markdown",
           reply_markup: {
-            keyboard: [["Proceed to Payment"]],
+            keyboard: [["💰 Proceed to Payment"], ["📊 Check Status"]],
             resize_keyboard: true
           }
         }
       );
 
+      // Admin notification in channel
       await bot.sendMessage(
         CHANNEL_ID,
-        `✅ User [${users[userId].fullName}](tg://user?id=${userId}) has been approved and notified.\n🔗 Channel: ${users[userId].channelLink}`,
+        `✅ **User Approved** ✅
+
+━━━━━━━━━━━━━━━━━━━
+
+👤 **User:** ${users[userId].fullName}
+🆔 **ID:** \`${userId}\`
+📧 **Email:** ${users[userId].email}
+📱 **Phone:** ${users[userId].phone}
+🐦 **Username:** @${users[userId].username}
+🔗 **Channel:** ${users[userId].channelLink}
+
+✅ **Approved by:** ${adminName}
+⏰ **Time:** ${new Date().toLocaleString()}
+
+━━━━━━━━━━━━━━━━━━━`,
         { parse_mode: "Markdown" }
       );
 
     } else {
+      // Rejection message
+      const rejectionMessage = `❌ **APPLICATION STATUS UPDATE** ❌
+
+━━━━━━━━━━━━━━━━━━━
+
+Dear ${users[userId].fullName},
+
+We regret to inform you that your registration application has been **REJECTED**.
+
+━━━━━━━━━━━━━━━━━━━
+
+**Possible reasons:**
+• Information provided could not be verified
+• Channel/content doesn't meet our guidelines
+• Duplicate application detected
+
+━━━━━━━━━━━━━━━━━━━
+
+If you believe this is a mistake or would like more information, please contact our support team.
+
+You may reapply after 30 days with updated information.`;
+
       await bot.sendMessage(
         userId,
-        `❌ **Registration Rejected**
-
-Unfortunately, your registration has been rejected. This could be due to:
-- Invalid information provided
-- Not meeting our requirements
-- Channel not eligible
-
-Please contact support if you believe this is a mistake.`,
+        rejectionMessage,
         {
           parse_mode: "Markdown",
           reply_markup: {
-            keyboard: [["Register"]],
+            keyboard: [["📝 Start Registration"]],
             resize_keyboard: true
           }
         }
@@ -330,7 +594,7 @@ bot.on("message", async (msg) => {
 
   const user = users[chatId];
 
-  if (text === "Proceed to Payment") {
+  if (text === "💰 Proceed to Payment") {
     if (user.status !== "approved") {
       return bot.sendMessage(chatId, "❌ You need to be approved first before making payment.");
     }
@@ -340,7 +604,11 @@ bot.on("message", async (msg) => {
     const diffHours = (now - approvalTime) / (1000 * 60 * 60);
     
     let amount = 100;
-    if (diffHours > 24) amount = 150;
+    let feeType = "Standard (within 24h)";
+    if (diffHours > 24) {
+      amount = 150;
+      feeType = "Late (after 24h)";
+    }
 
     const tx_ref = "tx-" + chatId + "-" + Date.now();
 
@@ -367,26 +635,48 @@ bot.on("message", async (msg) => {
       user.paymentAmount = amount;
       user.paymentInitTime = now;
 
+      const paymentMessage = `💰 **Payment Required** 💰
+
+━━━━━━━━━━━━━━━━━━━
+
+**Amount:** ${amount} ETB (${feeType})
+**Fee Type:** ${feeType}
+
+Click the secure link below to complete your payment:
+
+[🔐 CLICK HERE TO PAY SECURELY](${response.data.data.checkout_url})
+
+━━━━━━━━━━━━━━━━━━━
+
+✅ After payment, you'll be automatically verified and get instant access.
+
+_All payments are processed securely through Chapa._`;
+
       bot.sendMessage(
         chatId,
-        `💰 **Payment Required: ${amount} ETB**
-
-Click the link below to complete your payment:
-[🔗 Pay Now](${response.data.data.checkout_url})
-
-After payment, you'll be automatically verified.`,
+        paymentMessage,
         { parse_mode: "Markdown" }
       );
 
+      // Notify channel
       await bot.sendMessage(
         CHANNEL_ID,
-        `💰 User [${user.fullName}](tg://user?id=${chatId}) initiated payment of ${amount} ETB\n🔗 Channel: ${user.channelLink}`,
+        `💰 **Payment Initiated** 💰
+
+━━━━━━━━━━━━━━━━━━━
+
+👤 **User:** ${user.fullName}
+🆔 **ID:** \`${chatId}\`
+💰 **Amount:** ${amount} ETB (${feeType})
+🔗 **Channel:** ${user.channelLink}
+
+━━━━━━━━━━━━━━━━━━━`,
         { parse_mode: "Markdown" }
       );
 
     } catch (err) {
       console.log(err.response?.data || err.message);
-      bot.sendMessage(chatId, "❌ Payment initialization failed. Please try again later.");
+      bot.sendMessage(chatId, "❌ Payment initialization failed. Please try again later or contact support.");
     }
   }
 });
@@ -416,86 +706,5 @@ app.post("/verify", async (req, res) => {
         user.paymentStatus = "completed";
         user.paymentVerifiedAt = Date.now();
 
-        await bot.sendMessage(
-          chatId,
-          "✅ **Payment Confirmed!**\n\nWelcome aboard! You now have full access to our platform.\n🔗 Your Channel: " + user.channelLink,
-          { parse_mode: "Markdown" }
-        );
-
-        await bot.sendMessage(
-          CHANNEL_ID,
-          `💎 **New Paid Member!**
-
-👤 **Name:** ${user.fullName}
-📧 **Email:** ${user.email}
-🔗 **Channel:** ${user.channelLink}
-💰 **Amount:** ${user.paymentAmount} ETB
-🆔 **User ID:** ${chatId}
-📅 **Date:** ${new Date().toLocaleString()}
-
-Status: ✅ Fully Registered & Paid`,
-          { parse_mode: "Markdown" }
-        );
-
-        await bot.sendMessage(chatId, "What would you like to do next?", {
-          reply_markup: {
-            keyboard: [["Dashboard", "Support"]],
-            resize_keyboard: true
-          }
-        });
-      }
-    }
-
-    res.sendStatus(200);
-  } catch (error) {
-    console.log("Verification error:", error.message);
-    res.sendStatus(500);
-  }
-});
-
-// Dashboard for paid users
-bot.on("message", async (msg) => {
-  if (msg.chat.type !== "private") return;
-  
-  const chatId = msg.chat.id;
-  const text = msg.text;
-  
-  if (!users[chatId]) return;
-  
-  const user = users[chatId];
-  
-  if (text === "Dashboard" && user.paymentStatus === "completed") {
-    bot.sendMessage(
-      chatId,
-      `📊 **Your Dashboard**
-
-👤 Name: ${user.fullName}
-📧 Email: ${user.email}
-👥 Subscribers: ${user.subscribers}
-🔗 Channel: ${user.channelLink}
-💰 Paid: ${user.paymentAmount} ETB
-📅 Member since: ${new Date(user.paymentVerifiedAt).toLocaleDateString()}
-
-Access your features below:`,
-      {
-        parse_mode: "Markdown",
-        reply_markup: {
-          keyboard: [["Features", "Support"]],
-          resize_keyboard: true
-        }
-      }
-    );
-  } else if (text === "Support") {
-    bot.sendMessage(
-      chatId,
-      "📞 **Support Center**\n\nContact us at: support@example.com\nOr wait for admin assistance.",
-      { parse_mode: "Markdown" }
-    );
-  } else if (text === "Features") {
-    bot.sendMessage(
-      chatId,
-      "✨ **Available Features**\n\n• Analytics Dashboard\n• Campaign Manager\n• Audience Insights\n• Export Reports\n\nMore features coming soon!",
-      { parse_mode: "Markdown" }
-    );
-  }
-});
+        // Welcome message to user
+        const welc
