@@ -51,7 +51,7 @@ bot.onText(/\/start/, (msg) => {
 we build website and Telegram bots for your business 
 ✓ 100% Secure & Verified ✅
 ✓ Trusted by Creators 👥
-✓ 24/7 Premium Support 🎯
+✓ 24/7 Premium Support 🎯📢
 ✓ Instant Payment Processing 💰
 
 ━━━━━━━━━━━━━━━━━━━
