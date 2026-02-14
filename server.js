@@ -46,7 +46,7 @@ bot.onText(/\/start/, (msg) => {
 
 🔐 *Why Join Us?*
 ✓ 100% Secure & Verified ✅
-✓ Trusted by 10,000+ Creators 👥
+✓ Trusted by  Creators 👥
 ✓ 24/7 Premium Support 🎯
 ✓ Instant Payment Processing 💰
 ✓ Money-Back Guarantee 🤝
