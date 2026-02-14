@@ -24,6 +24,9 @@ const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 // Store user data in memory
 const users = {};
 
+// Store channel message IDs to user IDs mapping
+const channelMessageMap = {};
+
 // Simple health check for Render
 app.get('/', (req, res) => {
   res.send('✅ Bot is running!');
@@ -45,11 +48,11 @@ bot.onText(/\/start/, (msg) => {
 ━━━━━━━━━━━━━━━━━━━
 
 🔐 *Why Join Us?*
+we build website and Telegram bots for your business 
 ✓ 100% Secure & Verified ✅
-✓ Trusted by  Creators 👥
+✓ Trusted by Creators 👥
 ✓ 24/7 Premium Support 🎯
 ✓ Instant Payment Processing 💰
-✓ Money-Back Guarantee 🤝
 
 ━━━━━━━━━━━━━━━━━━━
 
@@ -264,10 +267,10 @@ bot.on('message', async (msg) => {
 ⏳ *Status: PENDING APPROVAL*
 ━━━━━━━━━━━━━━━━━━━
 
-💡 *Reply to this message to contact the user*`;
+💡 *Reply to this message to contact the user directly*`;
 
-    // Send to channel with buttons
-    await bot.sendMessage(CHANNEL_ID, channelMessage, {
+    // Send to channel with buttons and STORE the message ID
+    const sentMessage = await bot.sendMessage(CHANNEL_ID, channelMessage, {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
@@ -278,6 +281,10 @@ bot.on('message', async (msg) => {
         ]
       }
     });
+    
+    // STORE the mapping between channel message ID and user ID
+    channelMessageMap[sentMessage.message_id] = chatId;
+    console.log(`📝 Stored mapping: Channel msg ${sentMessage.message_id} -> User ${chatId}`);
     
     return bot.sendMessage(
       chatId,
@@ -331,6 +338,120 @@ ${statusEmoji} *Status:* ${statusText}
       parse_mode: 'Markdown',
       reply_markup: keyboard 
     });
+  }
+});
+
+// ==================== FIXED CHANNEL REPLY HANDLER ====================
+
+// Listen for ALL messages and check if they are replies in the channel
+bot.on('message', async (msg) => {
+  try {
+    // Check if this message is in the channel and is a reply
+    if (msg.chat && 
+        msg.chat.id && 
+        msg.chat.id.toString() === CHANNEL_ID.toString() && 
+        msg.reply_to_message) {
+      
+      console.log('📨 Channel reply detected!');
+      console.log('Reply to message ID:', msg.reply_to_message.message_id);
+      console.log('Reply text:', msg.text);
+      
+      // Get the original message ID that was replied to
+      const originalMessageId = msg.reply_to_message.message_id;
+      
+      // Find which user this channel message belongs to
+      const targetUserId = channelMessageMap[originalMessageId];
+      
+      console.log('Looking for user with message ID:', originalMessageId);
+      console.log('Found user ID:', targetUserId);
+      console.log('Current mapping:', channelMessageMap);
+      
+      if (targetUserId && users[targetUserId]) {
+        const user = users[targetUserId];
+        
+        // Format the admin reply message
+        const adminName = msg.from.first_name || 'Admin';
+        const replyText = msg.text || msg.caption || '';
+        
+        const forwardMessage = 
+`✉️ *Message from Administration* ✉️
+
+━━━━━━━━━━━━━━━━━━━
+
+${replyText}
+
+━━━━━━━━━━━━━━━━━━━
+👤 *Admin:* ${adminName}
+🕒 *Time:* ${new Date().toLocaleTimeString()}
+
+_This is an official message from our support team._`;
+
+        // Send the message to the user
+        await bot.sendMessage(targetUserId, forwardMessage, { parse_mode: 'Markdown' });
+        
+        console.log(`✅ Reply forwarded to user ${targetUserId}`);
+        
+        // Confirm to admin that message was sent
+        await bot.sendMessage(
+          CHANNEL_ID,
+          `✅ *Reply Sent Successfully!*\n\n👤 To: ${user.fullName}\n🆔 User ID: \`${targetUserId}\``,
+          { 
+            parse_mode: 'Markdown',
+            reply_to_message_id: msg.message_id 
+          }
+        );
+        
+      } else {
+        console.log('❌ User not found for message ID:', originalMessageId);
+        
+        // Try to extract user ID from the original message text as fallback
+        const originalText = msg.reply_to_message.text || '';
+        const userIdMatch = originalText.match(/User ID:\s*`?(\d+)`?/);
+        
+        if (userIdMatch) {
+          const fallbackUserId = userIdMatch[1];
+          console.log('Fallback: Found user ID in text:', fallbackUserId);
+          
+          if (users[fallbackUserId]) {
+            const user = users[fallbackUserId];
+            
+            const forwardMessage = 
+`✉️ *Message from Administration* ✉️
+
+━━━━━━━━━━━━━━━━━━━
+
+${msg.text || ''}
+
+━━━━━━━━━━━━━━━━━━━
+👤 *Admin:* ${msg.from.first_name || 'Admin'}
+
+_This is an official message from our support team._`;
+
+            await bot.sendMessage(fallbackUserId, forwardMessage, { parse_mode: 'Markdown' });
+            
+            await bot.sendMessage(
+              CHANNEL_ID,
+              `✅ *Reply Sent Successfully!*\n\n👤 To: ${user.fullName}`,
+              { parse_mode: 'Markdown', reply_to_message_id: msg.message_id }
+            );
+          } else {
+            await bot.sendMessage(
+              CHANNEL_ID,
+              `❌ *User Not Found*\n\nUser ID \`${fallbackUserId}\` is not in the database.`,
+              { parse_mode: 'Markdown', reply_to_message_id: msg.message_id }
+            );
+          }
+        } else {
+          await bot.sendMessage(
+            CHANNEL_ID,
+            `❌ *Cannot Process Reply*\n\nCould not find the user associated with this message.`,
+            { parse_mode: 'Markdown', reply_to_message_id: msg.message_id }
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error in channel reply handler:', error);
   }
 });
 
@@ -635,3 +756,6 @@ bot.on('message', async (msg) => {
     bot.sendMessage(chatId, support, { parse_mode: 'Markdown' });
   }
 });
+
+// Log that bot is running
+console.log('🤖 Bot is started and listening for messages...');
