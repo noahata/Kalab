@@ -1,7 +1,7 @@
 {
   "name": "telegram-bot",
   "version": "1.0.0",
-  "description": "Professional Telegram Bot",
+  "description": "Telegram Registration Bot",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
