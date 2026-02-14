@@ -9,16 +9,15 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// ========== AUTO URL DETECTION (OPTION 2) ==========
-// This automatically detects your Render URL without needing PUBLIC_URL in env
-const RENDER_URL = process.env.RENDER_EXTERNAL_URL; // Render provides this automatically
+// ========== AUTO URL DETECTION ==========
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
 const PUBLIC_URL = process.env.PUBLIC_URL || RENDER_URL || `http://localhost:${PORT}`;
 
 console.log("🚀 Server Configuration:");
 console.log("📡 PORT:", PORT);
 console.log("🌐 Public URL:", PUBLIC_URL);
 console.log("🔗 Webhook URL:", PUBLIC_URL + "/verify");
-// ====================================================
+// ========================================
 
 app.listen(PORT, () => console.log("✅ Server running on port " + PORT));
 
@@ -37,7 +36,6 @@ app.get("/", (req, res) => {
   res.send("✅ Bot is running 🚀");
 });
 
-// Add a route to check current URL
 app.get("/config", (req, res) => {
   res.json({
     status: "running",
@@ -45,6 +43,70 @@ app.get("/config", (req, res) => {
     webhook_url: PUBLIC_URL + "/verify",
     timestamp: new Date().toISOString()
   });
+});
+
+/* ================= CHANNEL REPLY HANDLER ================= 
+   When admin replies to a message in channel, it forwards to user's DM
+*/
+
+bot.on("message", async (msg) => {
+  // Check if this is a reply in the channel
+  if (msg.chat.id.toString() === CHANNEL_ID.toString() && msg.reply_to_message) {
+    
+    // Get the original message that was replied to
+    const originalMsg = msg.reply_to_message;
+    const originalText = originalMsg.text || originalMsg.caption || "";
+    
+    // Extract user ID from the original message
+    // Format: "🆔 User ID: 123456789" or similar
+    const userIdMatch = originalText.match(/🆔.*?(\d+)/) || originalText.match(/ID:?\s*(\d+)/i);
+    
+    if (userIdMatch) {
+      const targetUserId = userIdMatch[1];
+      
+      // Check if user exists in our database
+      if (users[targetUserId]) {
+        const user = users[targetUserId];
+        
+        // Forward admin's reply to the user
+        const replyText = `📨 **Message from Admin:**\n\n${msg.text || msg.caption || ""}`;
+        
+        try {
+          await bot.sendMessage(targetUserId, replyText, { parse_mode: "Markdown" });
+          
+          // Confirm to admin that message was sent
+          await bot.sendMessage(
+            CHANNEL_ID,
+            `✅ Reply sent to [${user.fullName}](tg://user?id=${targetUserId})`,
+            { parse_mode: "Markdown", reply_to_message_id: msg.message_id }
+          );
+          
+          console.log(`✅ Reply forwarded to user ${targetUserId}`);
+        } catch (error) {
+          console.error("Failed to send reply to user:", error);
+          await bot.sendMessage(
+            CHANNEL_ID,
+            `❌ Failed to send reply. User may have blocked the bot.`,
+            { reply_to_message_id: msg.message_id }
+          );
+        }
+      } else {
+        // User not found in database
+        await bot.sendMessage(
+          CHANNEL_ID,
+          `❌ User ID ${targetUserId} not found in registration database.`,
+          { reply_to_message_id: msg.message_id }
+        );
+      }
+    } else {
+      // Couldn't find user ID in the message
+      await bot.sendMessage(
+        CHANNEL_ID,
+        `❌ Could not find User ID in the original message. Make sure the message contains the user ID.`,
+        { reply_to_message_id: msg.message_id }
+      );
+    }
+  }
 });
 
 /* ================= START ================= */
@@ -94,7 +156,13 @@ bot.on("message", async (msg) => {
   if (user.step === 3) {
     user.subscribers = text;
     user.step = 4;
-    user.status = "pending"; // pending approval
+    return bot.sendMessage(chatId, "🔗 Please enter your Channel Link (e.g., https://t.me/yourchannel):");
+  }
+
+  if (user.step === 4) {
+    user.channelLink = text;
+    user.step = 5;
+    user.status = "pending";
 
     // Send registration to channel with inline buttons
     const messageOptions = {
@@ -115,16 +183,20 @@ bot.on("message", async (msg) => {
 👤 **Name:** ${user.fullName}
 📧 **Email:** ${user.email}
 👥 **Subscribers:** ${user.subscribers}
+🔗 **Channel:** ${user.channelLink}
 🆔 **User ID:** ${chatId}
 ⏰ **Time:** ${new Date().toLocaleString()}
 
-Status: ⏳ Pending Approval`,
+Status: ⏳ Pending Approval
+
+---
+💡 *Reply to this message to contact the user directly*`,
       { parse_mode: "Markdown", ...messageOptions }
     );
 
     return bot.sendMessage(
       chatId,
-      "✅ Your registration has been submitted for approval. You'll receive a notification once reviewed.",
+      "✅ Your registration has been submitted for approval. You'll receive a notification once reviewed.\n\n📝 **Note:** Admins may contact you via DM by replying to your registration message in the channel.",
       {
         reply_markup: {
           keyboard: [["Check Status"]],
@@ -146,6 +218,11 @@ Status: ⏳ Pending Approval`,
       statusMsg += "❌ Your application has been rejected. Please contact support for more information.";
     }
 
+    // Add channel link if available
+    if (user.channelLink) {
+      statusMsg += `\n\n🔗 Your Channel: ${user.channelLink}`;
+    }
+
     const keyboard = status === "approved" 
       ? { keyboard: [["Proceed to Payment"]], resize_keyboard: true }
       : { keyboard: [["Register"]], resize_keyboard: true };
@@ -163,20 +240,17 @@ Status: ⏳ Pending Approval`,
 bot.on("callback_query", async (callbackQuery) => {
   const message = callbackQuery.message;
   const data = callbackQuery.data;
-  const adminId = callbackQuery.from.id; // Admin who clicked
+  const adminId = callbackQuery.from.id;
 
-  // Extract action and userId from callback_data
   const [action, userId] = data.split("_");
 
   if (action === "approve" || action === "reject") {
-    // Update user status
     if (users[userId]) {
       users[userId].status = action === "approve" ? "approved" : "rejected";
       users[userId].adminActionBy = adminId;
       users[userId].adminActionAt = Date.now();
     }
 
-    // Update the channel message
     const newStatus = action === "approve" ? "✅ APPROVED" : "❌ REJECTED";
     const newText = message.text.replace(/Status:.*/g, `Status: ${newStatus} by [Admin](tg://user?id=${adminId})`);
     
@@ -184,12 +258,11 @@ bot.on("callback_query", async (callbackQuery) => {
       chat_id: message.chat.id,
       message_id: message.message_id,
       parse_mode: "Markdown",
-      reply_markup: { inline_keyboard: [] } // Remove buttons after action
+      reply_markup: { inline_keyboard: [] }
     });
 
-    // Notify the user
     if (action === "approve") {
-      users[userId].approvalTime = Date.now(); // Start payment timer
+      users[userId].approvalTime = Date.now();
       
       await bot.sendMessage(
         userId,
@@ -198,6 +271,8 @@ bot.on("callback_query", async (callbackQuery) => {
 You now have 24 hours to complete your payment.
 - Standard fee: 100 ETB (within 24h)
 - Late fee: 150 ETB (after 24h)
+
+🔗 Your Channel: ${users[userId].channelLink}
 
 Click the button below to proceed with payment.`,
         {
@@ -209,10 +284,9 @@ Click the button below to proceed with payment.`,
         }
       );
 
-      // Notify channel admin who approved
       await bot.sendMessage(
         CHANNEL_ID,
-        `✅ User [${users[userId].fullName}](tg://user?id=${userId}) has been approved and notified.`,
+        `✅ User [${users[userId].fullName}](tg://user?id=${userId}) has been approved and notified.\n🔗 Channel: ${users[userId].channelLink}`,
         { parse_mode: "Markdown" }
       );
 
@@ -224,6 +298,7 @@ Click the button below to proceed with payment.`,
 Unfortunately, your registration has been rejected. This could be due to:
 - Invalid information provided
 - Not meeting our requirements
+- Channel not eligible
 
 Please contact support if you believe this is a mistake.`,
         {
@@ -236,7 +311,6 @@ Please contact support if you believe this is a mistake.`,
       );
     }
 
-    // Answer callback query
     await bot.answerCallbackQuery(callbackQuery.id, {
       text: `User ${action === "approve" ? "approved" : "rejected"} successfully!`,
       show_alert: false
@@ -257,12 +331,10 @@ bot.on("message", async (msg) => {
   const user = users[chatId];
 
   if (text === "Proceed to Payment") {
-    // Check if user is approved
     if (user.status !== "approved") {
       return bot.sendMessage(chatId, "❌ You need to be approved first before making payment.");
     }
 
-    // Calculate payment amount based on time
     const now = Date.now();
     const approvalTime = user.approvalTime || now;
     const diffHours = (now - approvalTime) / (1000 * 60 * 60);
@@ -281,8 +353,8 @@ bot.on("message", async (msg) => {
           email: user.email,
           first_name: user.fullName,
           tx_ref: tx_ref,
-          callback_url: PUBLIC_URL + "/verify",  // Using auto-detected URL
-          return_url: PUBLIC_URL                   // Using auto-detected URL
+          callback_url: PUBLIC_URL + "/verify",
+          return_url: PUBLIC_URL
         },
         {
           headers: {
@@ -306,10 +378,9 @@ After payment, you'll be automatically verified.`,
         { parse_mode: "Markdown" }
       );
 
-      // Notify channel that user initiated payment
       await bot.sendMessage(
         CHANNEL_ID,
-        `💰 User [${user.fullName}](tg://user?id=${chatId}) initiated payment of ${amount} ETB`,
+        `💰 User [${user.fullName}](tg://user?id=${chatId}) initiated payment of ${amount} ETB\n🔗 Channel: ${user.channelLink}`,
         { parse_mode: "Markdown" }
       );
 
@@ -345,20 +416,19 @@ app.post("/verify", async (req, res) => {
         user.paymentStatus = "completed";
         user.paymentVerifiedAt = Date.now();
 
-        // Notify user
         await bot.sendMessage(
           chatId,
-          "✅ **Payment Confirmed!**\n\nWelcome aboard! You now have full access to our platform. Use /start to begin.",
+          "✅ **Payment Confirmed!**\n\nWelcome aboard! You now have full access to our platform.\n🔗 Your Channel: " + user.channelLink,
           { parse_mode: "Markdown" }
         );
 
-        // Notify channel with user info
         await bot.sendMessage(
           CHANNEL_ID,
           `💎 **New Paid Member!**
 
 👤 **Name:** ${user.fullName}
 📧 **Email:** ${user.email}
+🔗 **Channel:** ${user.channelLink}
 💰 **Amount:** ${user.paymentAmount} ETB
 🆔 **User ID:** ${chatId}
 📅 **Date:** ${new Date().toLocaleString()}
@@ -367,7 +437,6 @@ Status: ✅ Fully Registered & Paid`,
           { parse_mode: "Markdown" }
         );
 
-        // Update user keyboard
         await bot.sendMessage(chatId, "What would you like to do next?", {
           reply_markup: {
             keyboard: [["Dashboard", "Support"]],
@@ -384,7 +453,7 @@ Status: ✅ Fully Registered & Paid`,
   }
 });
 
-// Add simple dashboard for paid users
+// Dashboard for paid users
 bot.on("message", async (msg) => {
   if (msg.chat.type !== "private") return;
   
@@ -403,6 +472,7 @@ bot.on("message", async (msg) => {
 👤 Name: ${user.fullName}
 📧 Email: ${user.email}
 👥 Subscribers: ${user.subscribers}
+🔗 Channel: ${user.channelLink}
 💰 Paid: ${user.paymentAmount} ETB
 📅 Member since: ${new Date(user.paymentVerifiedAt).toLocaleDateString()}
 
